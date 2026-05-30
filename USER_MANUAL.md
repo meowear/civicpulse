@@ -100,22 +100,3 @@ At the bottom of the user interface sits the line chart mapping total citywide r
 * **Ward Counselors & Local Inspectors:** Filter the dashboard by your specific localized keywords (e.g., inputting *"Malakpet"* or *"Uppal"*) to build your regional daily oversight agenda.
 * **Urban Planners:** Filter the dashboard by specific categories like `Drainage` or `Roads` and analyze the 14-day trend line alongside the geographic heatmap to identify systemic infrastructure deficits requiring long-term capital investments.
 
-# Developer Manual
-
-> This project is scoped for **Hyderabad city** under GHMC jurisdiction, covering all zones: Central, North, South, East, West, and Secunderabad.
-
-```bash
-# Clone the repository
-git clone https://github.com/your-username/civicpulse.git
-cd civicpulse
-
-# Create Virtual Environment
-python -m venv venv
-venv/Scripts/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the dashboard
-streamlit run app.py
-```
