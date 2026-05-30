@@ -1,93 +1,154 @@
-# CivicPulse
 
+# 🏙️ CivicPulse
 
+### An AI-Driven Predictive Dashboard for Localized Civic Issue Identification and Escalation Tracking
+> 📍 **Scoped for Hyderabad, Telangana** — Covering all zones under GHMC (Greater Hyderabad Municipal Corporation)
 
-## Getting started
+---
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## 📌 Table of Contents
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- [Problem Statement](#problem-statement)
+- [Proposed Solution](#proposed-solution)
+- [Core Architecture](#core-architecture--workflow)
+- [Impact Score — Parameters & Weights](#impact-score--parameters--weights)
+- [Dashboard Features](#dashboard-features)
+- [Tech Stack](#tech-stack)
+- [Value Proposition](#value-proposition--impact)
+- [Getting Started](#getting-started)
 
-## Add your files
+---
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+## 🚨 Problem Statement
+
+Traditional civic grievance mechanisms (such as municipal mobile apps or web portals) are fundamentally **reactive**. They rely heavily on active citizen initiatives to formally file a complaint, leading to:
+
+- Severe **under-reporting** in underserved areas across Hyderabad's localities (Old City, Kukatpally, LB Nagar, etc.)
+- **Delayed responses** from GHMC and local ward authorities
+- Minor local issues escalating into **major structural or public safety failures** before resources are deployed
+
+Citizens frequently and organically voice infrastructure and public utility grievances across regional news outlets (like *The Hindu – Hyderabad*, *Telangana Today*) and social media — but this data remains **unstructured, fragmented, and entirely unmonitored** by civic bodies.
+
+---
+
+## 💡 Proposed Solution
+
+CivicPulse is an automated, AI-driven pipeline that actively listens to the **"digital public square"** across Hyderabad to detect, synthesize, and prioritize localized civic issues *before* they escalate.
+
+The system:
+1. Continuously collects unstructured data from Hyderabad-specific regional news feeds and public social media channels
+2. Structures this information using Large Language Models (LLMs)
+3. Maps the issues geographically across Hyderabad's neighbourhoods and GHMC zones
+4. Ranks grievances using a **Predictive Impact Engine** based on a multi-parameter weighted score
+5. Supports **date-based sorting** — by the date an issue received peak internet traction, or the date it was first reported
+
+---
+
+## 🏗️ Core Architecture & Workflow
 
 ```
-cd existing_repo
-git remote add origin https://code.swecha.org/chaitrali_d/civicpulse.git
-git branch -M main
-git push -uf origin main
+[Data Ingestion] ──> [AI Synthesis Layer] ──> [Impact Scoring Engine] ──> [Civic Dashboard]
 ```
 
-## Integrate with your tools
+### Layer Breakdown
 
-- [ ] [Set up project integrations](https://code.swecha.org/chaitrali_d/civicpulse/-/settings/integrations)
+**1. 📥 Data Ingestion Layer**
+Python-based ingestion pipelines using:
+- RSS feeds from Hyderabad-focused regional newspapers
+- Targeted scraping of localized social media spaces (Twitter/X locality hashtags, Reddit r/hyderabad, etc.)
 
-## Collaborate with your team
+**2. 🤖 AI Synthesis & Geocoding Layer**
+An LLM processing pipeline that performs Named Entity Recognition (NER) to extract:
+- **Issue Category** (e.g., sewage overflow, pothole, power outage, water scarcity)
+- **Local Landmark / Area Name** (e.g., "near Mehdipatnam flyover", "Ameerpet metro exit")
+- **Contextual Severity** — assessed from language tone, urgency cues, and surrounding context
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+**3. 📊 Predictive Impact Scoring Engine**
+A weighted algorithmic model — see full parameter and weight breakdown below.
 
-## Test and Deploy
+**4. 🗺️ Visualization Layer**
+A centralized geographic map dashboard (built via Streamlit + Leaflet) displaying dynamic **"hotspots"** of high-impact, unchecked civic issues across Hyderabad, sortable by score, post date, or peak traction date.
 
-Use the built-in continuous integration in GitLab.
+---
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+## 🧮 Impact Score — Parameters & Weights
 
-***
+Every reported issue is assigned a computed **Impact Score** using the following formula:
 
-# Editing this README
+### Core Formula
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```
+Impact Score = (S × 0.30) + (F × 0.25) + (R × 0.20) + (D × 0.15) + (P × 0.10)
+```
 
-## Suggestions for a good README
+> Weights are normalized so they sum to **1.0**. Each raw parameter is scaled to a **0–10** range before applying weights, producing a final Impact Score between **0 and 10**.
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+---
 
-## Name
-Choose a self-explaining name for your project.
+### Parameter Definitions & Weight Rationale
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+| Parameter | Symbol | Weight | Raw Scale | Description |
+|-----------|--------|--------|-----------|-------------|
+| **Severity** | `S` | **0.30** | 0–10 | LLM-evaluated score based on immediate public danger and urgency of language in reports. Highest weight because public safety risk is the primary triage criterion. |
+| **Frequency** | `F` | **0.25** | 0–10 | Normalized count of spatially-clustered duplicate reports for the same issue in the same locality. High weight because repeated independent reports validate the issue's reality and scale. |
+| **Compounding Risk Multiplier** | `R` | **0.20** | 0–10 | Environmental/temporal amplifier (e.g., a waterlogging report before Hyderabad's monsoon season, or a power failure during peak summer heat). Reflects how much worse an issue is likely to get if left unattended. |
+| **Issue Duration** | `D` | **0.15** | 0–10 | Time elapsed since the issue was first reported, normalized against a 30-day window. Longer-standing unresolved issues score higher, preventing chronic problems from being buried under new reports. |
+| **Population Density Impact** | `P` | **0.10** | 0–10 | Score based on the population density of the affected Hyderabad locality (e.g., dense areas like Secunderabad or Kukatpally score higher than outskirts). Lowest weight since density is a structural context factor, not an urgency signal. |
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+---
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### Weight Design Principles
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+- **Severity and Frequency dominate (55% combined)** — because the most dangerous and most-reported issues should unambiguously rise to the top.
+- **Compounding Risk (20%)** — accounts for future escalation potential, not just current state.
+- **Duration (15%)** — acts as an aging factor to surface neglected long-term issues.
+- **Population Density (10%)** — provides geographic fairness context without overriding urgency signals.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+---
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+## 📊 Dashboard Features
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+| Feature | Description |
+|---------|-------------|
+| 🗺️ **Hyderabad Heatmap** | Interactive map showing civic issue hotspots across all GHMC zones |
+| 🔢 **Impact Score Ranking** | Issues sorted by the computed multi-parameter weighted score |
+| 📅 **Sort by Post Date** | Sort all issues by the date they were first reported/posted, showing newest or oldest first |
+| 📈 **Sort by Peak Traction Date** | Sort issues by the date on which they received the highest volume of internet activity and social engagement — surfaces issues that had a surge in public attention on a specific date |
+| 🏷️ **Category Filter** | Filter by issue type — roads, water, power, sanitation, etc. |
+| 📍 **Locality Drill-Down** | Zoom into specific neighbourhoods (Banjara Hills, Tolichowki, Malakpet, etc.) |
+| ⏱️ **Duration Tracker** | Highlights long-standing unresolved issues that have aged past a threshold |
+| 📊 **Trend View** | Shows issue frequency trends over time per GHMC zone |
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+---
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## 🛠️ Tech Stack
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+| Category | Tools / Libraries |
+|----------|-------------------|
+| **Backend & Data Processing** | Python, Pandas ,crawl4ai,langchain|
+| **AI & NLP** | Gemini API / Groq API / Llama-3 (via Ollama) — for NER, severity scoring, and geocoding inference |
+| **Geocoding & Clustering** | `geopy` (landmark → lat/long for Hyderabad localities), string-match deduplication |
+| **Date & Traction Analysis** | Timestamp indexing + engagement volume tracking for post date and peak traction date sorting |
+| **Frontend Dashboard** | Streamlit + Leaflet.js (interactive geographic mapping) |
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+---
 
-## License
-For open source projects, say how it is licensed.
+## 🌍 Value Proposition & Impact
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+**From Reactive to Proactive Governance**
+Shifts GHMC resource allocation from *fixing complaints* to *preventing systemic infrastructure failures* across Hyderabad's 150+ wards.
+
+**Data-Driven Prioritization**
+Eliminates human bias by mathematically ensuring high-risk, high-impact issues rise to the top of the queue — regardless of which ward or locality the complaint originates from.
+
+**Date-Aware Intelligence**
+By allowing sorting on both post date and peak traction date, CivicPulse lets officials distinguish between *newly emerging* issues and *resurging* ones — enabling different response strategies for each.
+
+**Actionable Intelligence**
+Provides GHMC officials, ward counselors, and urban planners a ready-to-use triage dashboard for targeted, prioritized maintenance across the city.
+
+---
+
+
+<p align="center">Built to bridge the gap between Hyderabad's citizen voices and civic action. 🏛️</p>
+
