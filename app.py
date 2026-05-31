@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import html
-
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 from src.core.scoring import urgency_colors, urgency_label
 from src.ingestion.pipeline import load_issues
@@ -22,55 +19,20 @@ def load_dashboard_data() -> pd.DataFrame:
     return frame
 
 
-def render_leaflet_map(frame: pd.DataFrame) -> None:
-    markers = []
-    for issue in frame.to_dict("records"):
-        color, background = urgency_colors(float(issue["impact_score"]))
-        markers.append(
-            {
-                "lat": issue["latitude"],
-                "lng": issue["longitude"],
-                "title": html.escape(issue["title"]),
-                "area": html.escape(issue["area"]),
-                "zone": html.escape(issue["zone"]),
-                "score": issue["impact_score"],
-                "color": color,
-                "background": background,
-            }
-        )
-
-    marker_js = "\n".join(
-        f"""
-        L.circleMarker([{marker["lat"]}, {marker["lng"]}], {{
-            radius: 10,
-            color: "{marker["color"]}",
-            fillColor: "{marker["color"]}",
-            fillOpacity: 0.82,
-            weight: 2
-        }}).bindPopup(`
-            <strong>{marker["title"]}</strong><br>
-            {marker["area"]} · {marker["zone"]}<br>
-            Impact Score: <strong>{marker["score"]}</strong>
-        `).addTo(map);
-        """
-        for marker in markers
+def render_issue_map(frame: pd.DataFrame) -> None:
+    map_data = frame[["latitude", "longitude", "impact_score"]].copy()
+    map_data["color"] = map_data["impact_score"].apply(
+        lambda score: urgency_colors(float(score))[0]
     )
-
-    components.html(
-        f"""
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-        <div id="map" style="height: 430px; width: 100%; border: 1px solid #D7DEE8;"></div>
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <script>
-            const map = L.map('map').setView([17.405, 78.47], 11);
-            L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-                maxZoom: 19,
-                attribution: '&copy; OpenStreetMap'
-            }}).addTo(map);
-            {marker_js}
-        </script>
-        """,
-        height=450,
+    map_data["size"] = map_data["impact_score"].apply(lambda score: max(float(score) * 14, 60))
+    st.map(
+        map_data,
+        latitude="latitude",
+        longitude="longitude",
+        color="color",
+        size="size",
+        zoom=10,
+        height=430,
     )
 
 
@@ -134,7 +96,7 @@ filtered = filtered.sort_values(sort_column, ascending=direction == "Ascending")
 map_col, trend_col = st.columns([1.35, 1])
 with map_col:
     st.subheader("Hyderabad Hotspots")
-    render_leaflet_map(filtered)
+    render_issue_map(filtered)
 
 with trend_col:
     st.subheader("Zone Trend View")
