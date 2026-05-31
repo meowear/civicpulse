@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from datetime import date
+from pathlib import Path
 from uuid import uuid5, NAMESPACE_URL
 
 import pandas as pd
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.core.scoring import calculate_impact_score
 from src.data.sample_issues import build_sample_issues
