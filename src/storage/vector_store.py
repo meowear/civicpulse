@@ -127,17 +127,33 @@ class CivicVectorStore:
             ).fetchall()
         return pd.DataFrame([json.loads(row["document"]) for row in rows])
 
-    def search(self, query: str, limit: int = 20) -> pd.DataFrame:
+    def search(self, query: str, limit: int = 50) -> pd.DataFrame:
+        query = query.strip()
+        if not query:
+            return self.fetch_all()
+
+        query_tokens = set(_tokenize(query))
         query_embedding = embed_text(query)
         with self._connect() as connection:
             rows = connection.execute("SELECT document, embedding FROM issues").fetchall()
 
         scored = []
         for row in rows:
-            score = cosine_similarity(query_embedding, json.loads(row["embedding"]))
             issue = json.loads(row["document"])
-            issue["search_score"] = round(score, 4)
-            scored.append(issue)
+            searchable_text = " ".join(
+                str(issue.get(field, ""))
+                for field in ("title", "area", "zone", "category", "description", "source")
+            )
+            text_tokens = set(_tokenize(searchable_text))
+            token_overlap = len(query_tokens & text_tokens)
+            token_score = token_overlap / max(len(query_tokens), 1)
+            substring_score = 1.0 if query.lower() in searchable_text.lower() else 0.0
+            vector_score = cosine_similarity(query_embedding, json.loads(row["embedding"]))
+            score = vector_score + (token_score * 0.75) + (substring_score * 0.35)
+
+            if token_overlap > 0 or substring_score > 0:
+                issue["search_score"] = round(score, 4)
+                scored.append(issue)
 
         scored.sort(key=lambda item: item["search_score"], reverse=True)
         return pd.DataFrame(scored[:limit])
@@ -145,3 +161,7 @@ class CivicVectorStore:
     def count(self) -> int:
         with self._connect() as connection:
             return int(connection.execute("SELECT COUNT(*) FROM issues").fetchone()[0])
+
+    def clear(self) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM issues")

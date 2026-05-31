@@ -15,11 +15,12 @@ GHMC_GRIEVANCE_URL = "https://greenhyderabad.ghmc.gov.in/GrievanceRegistration.a
 SQLITE_DB_PATH = Path("storage/civicpulse_vector.db")
 
 
-st.set_page_config(page_title="CivicPulse", page_icon="🏙️", layout="wide")
+st.set_page_config(page_title="CivicPulse", page_icon="CP", layout="wide")
 
 
 def load_dashboard_data() -> pd.DataFrame:
-    frame = load_issues(st.session_state.get("semantic_query") or None)
+    query = str(st.session_state.get("search_query") or "").strip()
+    frame = load_issues(query or None)
     if frame.empty:
         return frame
     frame["post_date"] = pd.to_datetime(frame["post_date"])
@@ -102,7 +103,7 @@ def render_grievance_escalation_queue(grievances: pd.DataFrame) -> None:
             with action_col:
                 escalation_url = build_ghmc_escalation_url(issue)
                 st.link_button(
-                    "🔴 Escalate to GHMC (One-Click)",
+                    "Escalate to GHMC (One-Click)",
                     escalation_url,
                     use_container_width=True,
                 )
@@ -132,7 +133,7 @@ def render_prioritized_issue_cards(frame: pd.DataFrame) -> None:
                 st.markdown(
                     f"<span style='background:{background};color:{color};"
                     "padding:4px 8px;border-radius:6px;font-weight:700;'>"
-                    f"{float(issue['impact_score']):.2f} · {urgency_label(float(issue['impact_score']))}</span>",
+                    f"{float(issue['impact_score']):.2f} - {urgency_label(float(issue['impact_score']))}</span>",
                     unsafe_allow_html=True,
                 )
                 st.caption(
@@ -145,7 +146,7 @@ def render_prioritized_issue_cards(frame: pd.DataFrame) -> None:
 
             with action_col:
                 st.link_button(
-                    "🔴 Escalate to GHMC (One-Click)",
+                    "Escalate to GHMC (One-Click)",
                     escalation_url,
                     use_container_width=True,
                 )
@@ -183,7 +184,7 @@ def score_badge(score: float) -> str:
     return (
         f"<span style='background:{background};color:{color};"
         "padding:4px 8px;border-radius:6px;font-weight:700;'>"
-        f"{score:.2f} · {urgency_label(score)}</span>"
+        f"{score:.2f} - {urgency_label(score)}</span>"
     )
 
 
@@ -191,15 +192,21 @@ st.title("CivicPulse")
 st.caption("AI-driven civic issue prioritization for Hyderabad GHMC zones")
 
 st.text_input(
-    "Vector Search",
-    key="semantic_query",
+    "Search",
+    key="search_query",
     placeholder="Search by issue, area, category, or urgency signal",
 )
 
 df = load_dashboard_data()
 
 if df.empty:
-    st.warning("No civic issues found in the vector database.")
+    if str(st.session_state.get("search_query") or "").strip():
+        st.warning("No civic issues match this search.")
+    else:
+        st.warning(
+            "No live civic issues found in the database. Run "
+            "`python src/ingestion/pipeline.py --live` from the project root, then refresh."
+        )
     st.stop()
 
 active = len(df)

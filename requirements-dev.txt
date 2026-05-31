@@ -1,0 +1,12 @@
+-r requirements.txt
+pytest-cov>=5.0.0
+ruff>=0.6.0
+mypy>=1.10.0
+vulture>=2.11
+bandit>=1.7.9
+pylint>=3.2.0
+flake8>=7.1.0
+semgrep>=1.80.0
+pyupgrade>=3.16.0
+pip-audit>=2.7.0
+pre-commit>=3.7.0

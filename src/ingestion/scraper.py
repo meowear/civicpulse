@@ -1,32 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
+import html
+import re
+import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.error import URLError
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
+from xml.etree import ElementTree
 
-from crawl4ai import AsyncWebCrawler, CacheMode, CrawlerRunConfig
-from crawl4ai.async_configs import BrowserConfig
-from crawl4ai.deep_crawling import BFSDeepCrawlStrategy, DomainFilter, FilterChain
-from crawl4ai.extraction_strategy import LLMExtractionStrategy
-from pydantic import BaseModel, Field
+from src.geo.hyderabad import LOCALITIES
 
-
-class ScrapedCivicIssue(BaseModel):
-    title: str = Field(description="Short issue title.")
-    area: str = Field(description="Hyderabad locality, landmark, road, colony, or metro station.")
-    category: str = Field(description="Roads, Water, Power, Sanitation, Drainage, Street Lighting, or Traffic & Public Safety.")
-    description: str = Field(description="Factual civic grievance summary.")
-    post_date: str = Field(description="First reported date in YYYY-MM-DD format. Infer conservatively if needed.")
-    traction_date: str = Field(description="Date of highest public traction in YYYY-MM-DD format.")
-    engagement_count: int = Field(default=0, description="Observed likes, comments, shares, upvotes, or article discussion count.")
-    S: float = Field(ge=0, le=10, description="Severity score.")
-    F: float = Field(ge=0, le=10, description="Frequency score.")
-    R: float = Field(ge=0, le=10, description="Compounding risk score.")
-    D: float = Field(ge=0, le=10, description="Duration score.")
+PUBLISHER_SUFFIX_PATTERN = re.compile(r"\s+-\s+[^-]+$")
 
 
 @dataclass(frozen=True)
@@ -36,175 +25,377 @@ class CrawlTarget:
 
 
 HYDERABAD_QUERIES = (
-    "hyderabad pothole civic issue",
-    "hyderabad sewage overflow complaint",
-    "hyderabad water supply disruption",
-    "hyderabad street light outage",
-    "hyderabad garbage collection issue",
-    "hyderabad waterlogging monsoon drain",
+    "Hyderabad civic issue",
+    "Hyderabad GHMC complaint",
+    "Hyderabad pothole road damage",
+    "Hyderabad bad roads traffic civic",
+    "Hyderabad sewage overflow complaint GHMC",
+    "Hyderabad drainage problem",
+    "Hyderabad nala overflow",
+    "Hyderabad water supply disruption",
+    "Hyderabad drinking water problem",
+    "Hyderabad water leakage",
+    "Hyderabad street light outage",
+    "Hyderabad power cut civic issue",
+    "Hyderabad garbage collection issue GHMC",
+    "Hyderabad waste dumping",
+    "Hyderabad waterlogging monsoon drain",
+    "Hyderabad flood prone areas",
+    "Hyderabad road repair complaint",
+    "Hyderabad public safety traffic issue",
+    "Hyderabad encroachment civic issue",
+    "Hyderabad lake pollution",
+    "Hyderabad footpath encroachment",
+    "Hyderabad construction debris",
 )
+
+CIVIC_KEYWORDS = (
+    "pothole",
+    "road",
+    "sewage",
+    "sewer",
+    "drain",
+    "drainage",
+    "garbage",
+    "waste",
+    "waterlogging",
+    "water supply",
+    "drinking water",
+    "street light",
+    "streetlight",
+    "traffic",
+    "manhole",
+    "ghmc",
+    "hmwssb",
+    "power cut",
+    "electricity",
+    "outage",
+    "pollution",
+    "lake",
+    "footpath",
+    "encroachment",
+    "debris",
+    "flood",
+    "flooding",
+    "nala",
+    "civic",
+    "complaint",
+    "public safety",
+)
+
+GRIEVANCE_KEYWORDS = (
+    "accident fears",
+    "choke",
+    "crisis",
+    "damage",
+    "dark",
+    "disrupt",
+    "dump",
+    "failure",
+    "flood",
+    "garbage",
+    "hotspot",
+    "issue",
+    "leakage",
+    "overflow",
+    "pothole",
+    "sewage",
+    "struggles",
+    "waste pile",
+    "waterlogging",
+    "woes",
+    "problem",
+    "problems",
+    "complaint",
+    "complaints",
+    "concern",
+    "concerns",
+    "shortage",
+    "contamination",
+    "pollution",
+    "delay",
+    "delayed",
+    "repair",
+    "repairs",
+    "restoration",
+    "maintenance",
+    "encroachment",
+    "debris",
+    "overflowing",
+    "stagnant",
+    "disrupted",
+    "disruption",
+    "outage",
+)
+
+EXCLUDED_TOPICS = (
+    "arrest",
+    "blazing through",
+    "go-kart",
+    "praises hyderabad roads",
+    "promises",
+    "roadmap",
+    "traffic-free",
+    "election",
+    "campaign",
+    "manifesto",
+    "stock market",
+    "movie",
+    "cricket",
+    "celebrity",
+)
+
+SCOPE_NOISE_TERMS = (
+    "hyderabad mail",
+    "hyderabad news",
+)
+
+CATEGORY_KEYWORDS = {
+    "Drainage": ("sewage", "sewer", "drain", "drainage", "manhole", "nala"),
+    "Roads": ("pothole", "road", "repair", "flyover", "debris"),
+    "Water": ("water supply", "drinking water", "low pressure", "water leakage", "hmwssb"),
+    "Sanitation": ("garbage", "waste", "sanitation", "trash"),
+    "Street Lighting": ("street light", "streetlight", "lighting outage"),
+    "Power": ("power cut", "electricity", "power outage"),
+    "Traffic & Public Safety": ("traffic", "accident", "unsafe", "public safety"),
+    "Urban Infrastructure": ("footpath", "encroachment", "flood", "waterlogging", "lake", "pollution"),
+}
 
 
 def build_default_targets() -> list[CrawlTarget]:
-    reddit_targets = [
+    return [
         CrawlTarget(
-            url=f"https://www.reddit.com/r/hyderabad/search/?q={query.replace(' ', '%20')}&restrict_sr=1&sort=new",
-            platform="reddit",
+            url=(
+                "https://news.google.com/rss/search?q="
+                f"{quote(query + ' when:90d')}"
+                "&hl=en-IN&gl=IN&ceid=IN:en"
+            ),
+            platform="google_news",
         )
         for query in HYDERABAD_QUERIES
     ]
-    news_targets = [
-        CrawlTarget("https://telanganatoday.com/tag/hyderabad", "news"),
-        CrawlTarget("https://www.thehindu.com/news/cities/Hyderabad/", "news"),
-    ]
-    return [*reddit_targets, *news_targets]
 
 
 def _platform_from_url(url: str) -> str:
-    if "reddit.com" in url:
+    hostname = urlparse(url).hostname or ""
+    if "reddit.com" in hostname:
         return "reddit"
-    if "twitter.com" in url or "x.com" in url:
-        return "x"
-    if "instagram.com" in url:
-        return "instagram"
-    if "facebook.com" in url:
-        return "facebook"
+    if "news.google.com" in hostname:
+        return "google_news"
+    if "thehindu.com" in hostname or "telanganatoday.com" in hostname:
+        return "news"
     return "web"
 
 
-def _parse_extracted_content(content: str) -> list[dict[str, Any]]:
-    parsed = json.loads(content)
-    if isinstance(parsed, list):
-        return parsed
-    if isinstance(parsed, dict):
-        if "items" in parsed and isinstance(parsed["items"], list):
-            return parsed["items"]
-        for value in parsed.values():
-            if isinstance(value, list):
-                return value
-        return [parsed]
-    return []
+def _strip_markup(value: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", value)
+    text = html.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
-def _domain_filter(url: str) -> FilterChain:
-    hostname = urlparse(url).hostname
-    if not hostname:
-        return FilterChain()
-    return FilterChain([DomainFilter(allowed_domains=[hostname])])
+def _strip_publisher_suffix(title: str) -> str:
+    return PUBLISHER_SUFFIX_PATTERN.sub("", title).strip()
 
 
-async def _crawl_target(
-    crawler: AsyncWebCrawler,
-    target: CrawlTarget,
-    strategy: LLMExtractionStrategy,
-    retries: int,
-    delay_seconds: float,
-) -> list[dict[str, Any]]:
-    scroll_script = """
-    (async () => {
-        await new Promise(resolve => setTimeout(resolve, 2500));
-        const buttons = [...document.querySelectorAll('button, a')]
-            .filter(el => /more|load|comments|continue/i.test(el.innerText || ''));
-        for (const button of buttons.slice(0, 4)) {
-            try { button.click(); } catch (error) {}
-            await new Promise(resolve => setTimeout(resolve, 800));
-        }
-        for (let i = 0; i < 7; i++) {
-            window.scrollTo(0, document.body.scrollHeight);
-            await new Promise(resolve => setTimeout(resolve, 1200));
-        }
-    })();
-    """
-    run_config = CrawlerRunConfig(
-        cache_mode=CacheMode.BYPASS,
-        js_code=scroll_script,
-        extraction_strategy=strategy,
-        wait_until="networkidle",
-        page_timeout=90000,
-        scan_full_page=True,
-        max_scroll_steps=10,
-        scroll_delay=0.4,
-        process_iframes=True,
-        remove_overlay_elements=True,
-        remove_consent_popups=True,
-        simulate_user=True,
-        override_navigator=True,
-        deep_crawl_strategy=BFSDeepCrawlStrategy(
-            max_depth=1,
-            max_pages=8,
-            filter_chain=_domain_filter(target.url),
-            include_external=False,
-        ),
+def _parse_date(value: str | None) -> str:
+    if not value:
+        return date.today().isoformat()
+    try:
+        parsed = parsedate_to_datetime(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.date().isoformat()
+    except (TypeError, ValueError):
+        pass
+
+    for date_format in ("%Y-%m-%d", "%d %b %Y", "%B %d, %Y"):
+        try:
+            return datetime.strptime(value, date_format).date().isoformat()
+        except ValueError:
+            continue
+    return date.today().isoformat()
+
+
+def _fetch_text(url: str, retries: int = 3, delay_seconds: float = 1.5) -> str:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            ),
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+            "Accept-Language": "en-IN,en;q=0.9",
+        },
     )
-
     for attempt in range(1, retries + 1):
         try:
-            result = await crawler.arun(url=target.url, config=run_config)
-            crawl_results = result if isinstance(result, list) else [result]
-            records = []
-            for crawl_result in crawl_results:
-                if crawl_result.success and crawl_result.extracted_content:
-                    page_records = _parse_extracted_content(crawl_result.extracted_content)
-                    for record in page_records:
-                        record["source"] = target.platform
-                        record["source_url"] = getattr(crawl_result, "url", target.url)
-                        record["scraped_on"] = date.today().isoformat()
-                    records.extend(page_records)
-            if records:
-                return records
-            await asyncio.sleep(delay_seconds * attempt)
-        except Exception:
+            with urlopen(request, timeout=20) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except (OSError, URLError):
             if attempt == retries:
-                return []
-            await asyncio.sleep(delay_seconds * (2 ** (attempt - 1)))
-    return []
+                return ""
+            time.sleep(delay_seconds * attempt)
+    return ""
+
+
+def _find_text(element: ElementTree.Element, *names: str) -> str:
+    for name in names:
+        found = element.find(name)
+        if found is not None and found.text:
+            return _strip_markup(found.text)
+    return ""
+
+
+def _parse_rss(xml_text: str) -> list[dict[str, str]]:
+    if not xml_text:
+        return []
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError:
+        return []
+
+    entries: list[dict[str, str]] = []
+    for item in root.findall(".//item"):
+        entries.append(
+            {
+                "title": _find_text(item, "title"),
+                "description": _find_text(item, "description"),
+                "link": _find_text(item, "link"),
+                "published": _find_text(item, "pubDate"),
+            }
+        )
+
+    if entries:
+        return entries
+
+    namespace = {"atom": "http://www.w3.org/2005/Atom"}
+    for entry in root.findall(".//atom:entry", namespace):
+        link = ""
+        link_element = entry.find("atom:link", namespace)
+        if link_element is not None:
+            link = str(link_element.attrib.get("href") or "")
+        entries.append(
+            {
+                "title": _find_text(entry, "{http://www.w3.org/2005/Atom}title"),
+                "description": _find_text(entry, "{http://www.w3.org/2005/Atom}summary"),
+                "link": link,
+                "published": _find_text(
+                    entry,
+                    "{http://www.w3.org/2005/Atom}published",
+                    "{http://www.w3.org/2005/Atom}updated",
+                ),
+            }
+        )
+    return entries
+
+
+def _is_hyderabad_civic_item(title: str, description: str) -> bool:
+    text = f"{title} {description}".lower()
+    scope_text = text
+    for noise_term in SCOPE_NOISE_TERMS:
+        scope_text = scope_text.replace(noise_term, "")
+    if "hyderabad" not in scope_text:
+        return False
+    if any(topic in text for topic in EXCLUDED_TOPICS):
+        return False
+    return any(keyword in text for keyword in CIVIC_KEYWORDS)
+
+
+def _extract_area(title: str, description: str) -> str:
+    text = f"{title} {description}".lower()
+    for landmark in sorted(LOCALITIES, key=len, reverse=True):
+        if landmark in text:
+            return landmark.title()
+    return "Hyderabad"
+
+
+def _classify_category(title: str, description: str) -> str:
+    text = f"{title} {description}".lower()
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            return category
+    return "Uncategorized"
+
+
+def _score_issue(category: str, title: str, description: str, post_date: str) -> dict[str, float]:
+    text = f"{title} {description}".lower()
+    severity = 5.0
+    if any(word in text for word in ("danger", "accident", "death", "injured", "unsafe", "open manhole")):
+        severity = 8.5
+    elif category in {"Drainage", "Roads", "Water"}:
+        severity = 7.0
+    elif category in {"Sanitation", "Street Lighting"}:
+        severity = 6.0
+
+    frequency = 6.5 if any(word in text for word in ("residents", "several", "multiple", "again")) else 4.5
+    risk = 7.8 if category == "Drainage" and any(word in text for word in ("monsoon", "rain", "waterlogging")) else 5.5
+    try:
+        age_days = max(0, (date.today() - datetime.strptime(post_date, "%Y-%m-%d").date()).days)
+    except ValueError:
+        age_days = 0
+    duration = min(age_days / 30 * 10, 10)
+    return {"S": severity, "F": frequency, "R": risk, "D": round(duration, 2)}
+
+
+def _entry_to_issue(entry: dict[str, str], platform: str) -> dict[str, Any] | None:
+    title = _strip_publisher_suffix(entry["title"])
+    description = entry["description"] or title
+    if not _is_hyderabad_civic_item(title, description):
+        return None
+
+    post_date = _parse_date(entry.get("published"))
+    category = _classify_category(title, description)
+    scores = _score_issue(category, title, description, post_date)
+    area = _extract_area(title, description)
+    return {
+        "title": title,
+        "area": area,
+        "category": category,
+        "description": description,
+        "post_date": post_date,
+        "traction_date": post_date,
+        "engagement_count": 0,
+        "source": platform,
+        "source_url": entry.get("link") or "",
+        **scores,
+    }
+
+
+async def _scrape_target(target: CrawlTarget) -> list[dict[str, Any]]:
+    xml_text = await asyncio.to_thread(_fetch_text, target.url)
+    issues = []
+    for entry in _parse_rss(xml_text):
+        issue = _entry_to_issue(entry, target.platform)
+        if issue:
+            issues.append(issue)
+    return issues
 
 
 async def scrape_civic_sources_deep(urls: list[str] | None = None) -> list[dict[str, Any]]:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        return []
-
     targets = (
         [CrawlTarget(url=url, platform=_platform_from_url(url)) for url in urls]
         if urls
         else build_default_targets()
     )
-    browser_config = BrowserConfig(
-        browser_type="chromium",
-        headless=True,
-        text_mode=False,
-        viewport_width=1440,
-        viewport_height=1400,
-        headers={
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
-        },
-    )
-    strategy = LLMExtractionStrategy(
-        provider="google/gemini-2.5-flash",
-        api_key=api_key,
-        schema=ScrapedCivicIssue.model_json_schema(),
-        instruction=(
-            "Extract only concrete civic infrastructure grievances within Hyderabad, Telangana. "
-            "Look deeply through visible posts, article cards, comments, replies, timestamps, "
-            "and engagement counters. Ignore politics without a civic issue, ads, unrelated cities, "
-            "generic navigation, and duplicate summaries. Return an array of unique issues. "
-            "Use ISO dates. If a landmark cannot be confidently resolved, keep the area text as written."
-        ),
-    )
 
-    all_records: list[dict[str, Any]] = []
-    semaphore = asyncio.Semaphore(3)
+    semaphore = asyncio.Semaphore(4)
 
-    async with AsyncWebCrawler(config=browser_config) as crawler:
-        async def bounded_crawl(target: CrawlTarget) -> list[dict[str, Any]]:
-            async with semaphore:
-                return await _crawl_target(crawler, target, strategy, retries=3, delay_seconds=2.0)
+    async def bounded_scrape(target: CrawlTarget) -> list[dict[str, Any]]:
+        async with semaphore:
+            return await _scrape_target(target)
 
-        results = await asyncio.gather(*(bounded_crawl(target) for target in targets))
+    results = await asyncio.gather(*(bounded_scrape(target) for target in targets))
 
+    deduped: dict[str, dict[str, Any]] = {}
     for records in results:
-        all_records.extend(records)
-    return all_records
+        for record in records:
+            key = "|".join(
+                [
+                    str(record.get("title", "")).lower(),
+                    str(record.get("area", "")).lower(),
+                    str(record.get("source_url", "")).lower(),
+                ]
+            )
+            deduped[key] = record
+    return list(deduped.values())

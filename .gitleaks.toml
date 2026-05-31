@@ -1,0 +1,10 @@
+title = "CivicPulse Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "civicpulse-env-assignment"
+description = "Detect likely committed secrets in environment-style assignments"
+regex = '''(?i)(api[_-]?key|secret|token|password)\s*=\s*['"]?[A-Za-z0-9_\-]{20,}'''
+tags = ["secret", "env"]

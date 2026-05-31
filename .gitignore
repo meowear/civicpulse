@@ -7,3 +7,4 @@ venv/
 /storage/
 streamlit.err.log
 streamlit.out.log
+PROJECT_ARCHITECTURE.md

@@ -66,37 +66,45 @@ def seed_sample_data(store: CivicVectorStore | None = None) -> pd.DataFrame:
     return pd.DataFrame(issues)
 
 
-def load_issues(query: str | None = None, store: CivicVectorStore | None = None) -> pd.DataFrame:
+def load_issues(
+    query: str | None = None,
+    store: CivicVectorStore | None = None,
+    seed_if_empty: bool = False,
+) -> pd.DataFrame:
     vector_store = store or CivicVectorStore()
-    if vector_store.count() == 0:
+    if seed_if_empty and vector_store.count() == 0:
         seed_sample_data(vector_store)
-    if query:
-        return vector_store.search(query)
+    normalized_query = query.strip() if query else None
+    if normalized_query:
+        return vector_store.search(normalized_query)
     return vector_store.fetch_all()
 
 
-async def run_live_pipeline(urls: list[str] | None = None) -> pd.DataFrame:
+async def run_live_pipeline(urls: list[str] | None = None, replace_existing: bool = True) -> pd.DataFrame:
     from src.ingestion.scraper import scrape_civic_sources_deep
 
     raw_issues = await scrape_civic_sources_deep(urls)
     store = CivicVectorStore()
     if not raw_issues:
-        return load_issues(store=store)
+        return pd.DataFrame()
 
     issues = [normalize_issue(issue) for issue in raw_issues]
+    if replace_existing:
+        store.clear()
     store.upsert_issues(issues)
     return pd.DataFrame(issues)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the CivicPulse ingestion pipeline.")
-    parser.add_argument("--live", action="store_true", help="Use live Crawl4AI + Gemini scraping.")
+    parser.add_argument("--live", action="store_true", help="Use live RSS/news scraping.")
+    parser.add_argument("--append", action="store_true", help="Append live records instead of replacing the dashboard dataset.")
     parser.add_argument("--url", action="append", default=None, help="Optional URL to scrape. Repeat for more URLs.")
     args = parser.parse_args()
 
     if args.live:
-        frame = asyncio.run(run_live_pipeline(args.url))
-        print(f"Stored {len(frame)} live or previously cached issues in the vector database.")
+        frame = asyncio.run(run_live_pipeline(args.url, replace_existing=not args.append))
+        print(f"Stored {len(frame)} live issues in storage/civicpulse_vector.db.")
     else:
         frame = seed_sample_data()
         print(f"Seeded {len(frame)} sample issues in storage/civicpulse_vector.db.")

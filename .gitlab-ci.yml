@@ -1,0 +1,36 @@
+stages:
+  - quality
+  - security
+  - test
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+default:
+  image: python:3.11-slim
+  before_script:
+    - python -m pip install --upgrade pip
+    - pip install -r requirements-dev.txt
+
+quality:
+  stage: quality
+  script:
+    - ruff check .
+    - ruff format --check .
+    - mypy src
+    - flake8 .
+    - pylint src
+    - vulture src app.py
+    - pre-commit run pyupgrade --all-files
+
+security:
+  stage: security
+  script:
+    - bandit -r src
+    - pip-audit
+    - semgrep --config auto --error
+
+test:
+  stage: test
+  script:
+    - pytest --cov=src --cov-report=term-missing --cov-fail-under=70

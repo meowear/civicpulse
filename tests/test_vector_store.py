@@ -16,3 +16,13 @@ def test_vector_store_upserts_and_searches_issues(tmp_path: Path) -> None:
 
     assert not results.empty
     assert "Kukatpally" in results.iloc[0]["area"]
+
+
+def test_vector_store_search_ignores_unrelated_queries(tmp_path: Path) -> None:
+    store = CivicVectorStore(tmp_path / "issues.db")
+    issues = [normalize_issue(issue) for issue in build_sample_issues()]
+    store.upsert_issues(issues)
+
+    results = store.search("zzzz-not-a-civic-topic", limit=3)
+
+    assert results.empty
