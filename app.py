@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import sqlite3
+from pathlib import Path
+from urllib.parse import quote
+
 import pandas as pd
 import streamlit as st
 
 from src.core.scoring import urgency_colors, urgency_label
 from src.ingestion.pipeline import load_issues
+
+
+GHMC_GRIEVANCE_URL = "https://greenhyderabad.ghmc.gov.in/GrievanceRegistration.aspx"
+SQLITE_DB_PATH = Path("storage/civicpulse_vector.db")
 
 
 st.set_page_config(page_title="CivicPulse", page_icon="🏙️", layout="wide")
@@ -17,6 +25,140 @@ def load_dashboard_data() -> pd.DataFrame:
     frame["post_date"] = pd.to_datetime(frame["post_date"])
     frame["traction_date"] = pd.to_datetime(frame["traction_date"])
     return frame
+
+
+def load_unresolved_grievances(db_path: Path = SQLITE_DB_PATH) -> pd.DataFrame:
+    if not db_path.exists():
+        return pd.DataFrame()
+
+    try:
+        with sqlite3.connect(db_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, category, landmark, description, severity_score, impact_score
+                FROM grievances
+                ORDER BY impact_score DESC, severity_score DESC
+                """
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return pd.DataFrame()
+
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "id",
+            "category",
+            "landmark",
+            "description",
+            "severity_score",
+            "impact_score",
+        ],
+    )
+
+
+def build_ghmc_escalation_url(issue: pd.Series) -> str:
+    category = quote(str(issue.get("category") or ""), safe="")
+    landmark = quote(str(issue.get("landmark") or issue.get("area") or ""), safe="")
+    description = quote(
+        str(issue.get("description") or issue.get("title") or ""),
+        safe="",
+    )
+    return (
+        f"{GHMC_GRIEVANCE_URL}"
+        f"?category={category}&landmark={landmark}&description={description}"
+    )
+
+
+def render_manual_copy_fallback(issue: pd.Series) -> None:
+    prefilled_text = (
+        f"Category: {issue.get('category') or 'Unspecified'}\n"
+        f"Landmark: {issue.get('landmark') or issue.get('area') or 'Unspecified'}\n"
+        f"Description: {issue.get('description') or issue.get('title') or 'No description provided'}"
+    )
+    st.caption("If the GHMC portal does not pre-fill these fields, copy this text:")
+    st.code(prefilled_text, language="text")
+
+
+def render_grievance_escalation_queue(grievances: pd.DataFrame) -> None:
+    if grievances.empty:
+        return
+
+    st.subheader("Unresolved GHMC Escalations")
+    for _, issue in grievances.iterrows():
+        color, background = urgency_colors(float(issue["impact_score"]))
+        with st.container(border=True):
+            detail_col, action_col = st.columns([3, 1])
+            with detail_col:
+                st.markdown(
+                    f"**{issue['category']}** near **{issue['landmark']}**  \n"
+                    f"{issue['description']}"
+                )
+                st.markdown(
+                    f"<span style='background:{background};color:{color};"
+                    "padding:4px 8px;border-radius:6px;font-weight:700;'>"
+                    f"Impact {float(issue['impact_score']):.2f}</span>",
+                    unsafe_allow_html=True,
+                )
+            with action_col:
+                escalation_url = build_ghmc_escalation_url(issue)
+                st.link_button(
+                    "🔴 Escalate to GHMC (One-Click)",
+                    escalation_url,
+                    use_container_width=True,
+                )
+                st.markdown(
+                    (
+                        f"<a href='{escalation_url}' target='_blank' "
+                        "rel='noopener noreferrer'>Open in new tab</a>"
+                    ),
+                    unsafe_allow_html=True,
+                )
+            render_manual_copy_fallback(issue)
+
+
+def render_prioritized_issue_cards(frame: pd.DataFrame) -> None:
+    for _, issue in frame.iterrows():
+        color, background = urgency_colors(float(issue["impact_score"]))
+        escalation_url = build_ghmc_escalation_url(issue)
+
+        with st.container(border=True):
+            detail_col, action_col = st.columns([3, 1])
+            with detail_col:
+                st.markdown(
+                    f"**{issue['title']}**  \n"
+                    f"{issue['category']} near **{issue['area']}** | {issue['zone']}"
+                )
+                st.write(issue["description"])
+                st.markdown(
+                    f"<span style='background:{background};color:{color};"
+                    "padding:4px 8px;border-radius:6px;font-weight:700;'>"
+                    f"{float(issue['impact_score']):.2f} · {urgency_label(float(issue['impact_score']))}</span>",
+                    unsafe_allow_html=True,
+                )
+                st.caption(
+                    "Post date: "
+                    f"{issue['post_date'].strftime('%Y-%m-%d')} | "
+                    "Peak traction: "
+                    f"{issue['traction_date'].strftime('%Y-%m-%d')} | "
+                    f"Engagement: {int(issue['engagement_count'])}"
+                )
+
+            with action_col:
+                st.link_button(
+                    "🔴 Escalate to GHMC (One-Click)",
+                    escalation_url,
+                    use_container_width=True,
+                )
+                st.markdown(
+                    (
+                        f"<a href='{escalation_url}' target='_blank' "
+                        "rel='noopener noreferrer'>Open in new tab</a>"
+                    ),
+                    unsafe_allow_html=True,
+                )
+
+            with st.expander("Manual copy fallback"):
+                render_manual_copy_fallback(issue)
 
 
 def render_issue_map(frame: pd.DataFrame) -> None:
@@ -108,37 +250,6 @@ with trend_col:
     st.bar_chart(trend, x="zone", y="reports", color="category")
 
 st.subheader("Prioritized Issue Queue")
+render_prioritized_issue_cards(filtered)
 
-display = filtered[
-    [
-        "id",
-        "title",
-        "area",
-        "zone",
-        "category",
-        "impact_score",
-        "post_date",
-        "traction_date",
-        "engagement_count",
-    ]
-].copy()
-display["post_date"] = display["post_date"].dt.strftime("%Y-%m-%d")
-display["traction_date"] = display["traction_date"].dt.strftime("%Y-%m-%d")
-display["impact"] = display["impact_score"].apply(lambda value: score_badge(float(value)))
-
-st.write(
-    display[
-        [
-            "id",
-            "title",
-            "area",
-            "zone",
-            "category",
-            "impact",
-            "post_date",
-            "traction_date",
-            "engagement_count",
-        ]
-    ].to_html(escape=False, index=False),
-    unsafe_allow_html=True,
-)
+render_grievance_escalation_queue(load_unresolved_grievances())
