@@ -1,11 +1,7 @@
-from src.ingestion.pipeline import run_mock_pipeline
+"""Streamlit Cloud entrypoint for CivicPulse.
 
+The dashboard implementation lives in app.py. Importing it lets deployments
+configured with main.py render the same Streamlit app.
+"""
 
-def main() -> None:
-    frame = run_mock_pipeline()
-    print(f"CivicPulse pipeline generated {len(frame)} records.")
-    print("Run `streamlit run app.py` to open the dashboard.")
-
-
-if __name__ == "__main__":
-    main()
+import app  # noqa: F401

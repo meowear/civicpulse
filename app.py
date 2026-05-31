@@ -4,6 +4,7 @@ import html
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src.core.scoring import urgency_colors, urgency_label
 from src.ingestion.pipeline import load_issues
@@ -13,7 +14,9 @@ st.set_page_config(page_title="CivicPulse", page_icon="🏙️", layout="wide")
 
 
 def load_dashboard_data() -> pd.DataFrame:
-    frame = load_issues()
+    frame = load_issues(st.session_state.get("semantic_query") or None)
+    if frame.empty:
+        return frame
     frame["post_date"] = pd.to_datetime(frame["post_date"])
     frame["traction_date"] = pd.to_datetime(frame["traction_date"])
     return frame
@@ -53,7 +56,7 @@ def render_leaflet_map(frame: pd.DataFrame) -> None:
         for marker in markers
     )
 
-    st.iframe(
+    components.html(
         f"""
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
         <div id="map" style="height: 430px; width: 100%; border: 1px solid #D7DEE8;"></div>
@@ -80,10 +83,20 @@ def score_badge(score: float) -> str:
     )
 
 
-df = load_dashboard_data()
-
 st.title("CivicPulse")
 st.caption("AI-driven civic issue prioritization for Hyderabad GHMC zones")
+
+st.text_input(
+    "Vector Search",
+    key="semantic_query",
+    placeholder="Search by issue, area, category, or urgency signal",
+)
+
+df = load_dashboard_data()
+
+if df.empty:
+    st.warning("No civic issues found in the vector database.")
+    st.stop()
 
 active = len(df)
 critical = int((df["impact_score"] >= 8.0).sum())
