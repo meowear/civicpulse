@@ -9,12 +9,22 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote, urlparse
-from xml.etree import ElementTree
+from urllib.request import Request, urlopen
+
+from defusedxml import ElementTree
 
 from src.geo.ai_location import infer_hyderabad_locality
 from src.geo.hyderabad import extract_known_locality
 
 PUBLISHER_SUFFIX_PATTERN = re.compile(r"\s+-\s+[^-]+$")
+REQUEST_TIMEOUT_SECONDS = 20
+HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "CivicPulse/1.0 Hyderabad civic issue monitor"
+    ),
+    "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html",
+}
 
 
 @dataclass(frozen=True)
@@ -199,6 +209,30 @@ def _platform_from_url(url: str) -> str:
     return "web"
 
 
+def _is_feed_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return any(
+        marker in parsed.path.lower() or marker in parsed.query.lower()
+        for marker in ("rss", "atom", "feed", "xml")
+    )
+
+
+def _fetch_text_direct(url: str, timeout_seconds: int = REQUEST_TIMEOUT_SECONDS) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return ""
+
+    request = Request(url, headers=HTTP_HEADERS)  # noqa: S310
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
+            raw_body = response.read()
+            content_type = response.headers.get_content_charset() or "utf-8"
+    except (OSError, URLError):
+        return ""
+
+    return raw_body.decode(content_type, errors="replace")
+
+
 def _strip_markup(value: str) -> str:
     text = re.sub(r"<[^>]+>", " ", value)
     text = html.unescape(text)
@@ -229,7 +263,16 @@ def _parse_date(value: str | None) -> str:
 
 
 async def _fetch_text_async(url: str, retries: int = 3, delay_seconds: float = 1.5) -> str:
-    from crawl4ai import AsyncWebCrawler
+    if _is_feed_url(url):
+        direct_content = await asyncio.to_thread(_fetch_text_direct, url)
+        if direct_content:
+            return direct_content
+
+    try:
+        from crawl4ai import AsyncWebCrawler
+    except ImportError:
+        return ""
+
     for attempt in range(1, retries + 1):
         try:
             async with AsyncWebCrawler(verbose=False) as crawler:

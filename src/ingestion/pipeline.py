@@ -5,7 +5,7 @@ import asyncio
 import sys
 from datetime import date
 from pathlib import Path
-from uuid import uuid5, NAMESPACE_URL
+from uuid import NAMESPACE_URL, uuid5
 
 import pandas as pd
 
@@ -15,7 +15,7 @@ if __package__ in {None, ""}:
 from src.core.scoring import calculate_impact_score
 from src.data.sample_issues import build_sample_issues
 from src.geo.ai_location import infer_hyderabad_locality
-from src.geo.hyderabad import resolve_locality
+from src.geo.hyderabad import extract_known_locality, resolve_locality
 from src.storage.vector_store import CivicVectorStore
 
 
@@ -32,8 +32,14 @@ def normalize_issue(raw_issue: dict[str, object]) -> dict[str, object]:
         or title
     )
     locality = resolve_locality(area)
+    text_for_location = " ".join([area, title, description])
     if locality.zone == "Unknown":
-        text_for_location = " ".join([area, title, description])
+        known_area = extract_known_locality(text_for_location)
+        if known_area:
+            area = known_area
+            locality = resolve_locality(known_area)
+
+    if locality.zone == "Unknown":
         inferred_area = infer_hyderabad_locality(text_for_location)
         if inferred_area:
             inferred_locality = resolve_locality(inferred_area)

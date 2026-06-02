@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from html import escape
 from pathlib import Path
 from urllib.parse import quote
@@ -12,7 +13,6 @@ from src.config import get_bool_env, get_int_env
 from src.core.scoring import urgency_colors, urgency_label
 from src.ingestion.pipeline import load_issues, run_live_pipeline
 from src.storage.vector_store import MissingSupabaseConfig
-
 
 GHMC_GRIEVANCE_URL = "https://greenhyderabad.ghmc.gov.in/GrievanceRegistration.aspx"
 LOCAL_DOCS_PATH = Path("PIPELINE.md").resolve()
@@ -202,10 +202,6 @@ def score_badge(score: float) -> str:
         f"{score:.2f} - {urgency_label(score)}</span>"
     )
 
-
-import json
-import streamlit.components.v1 as components
-
 def render_zone_trend_chart(frame: pd.DataFrame) -> None:
     trend = (
         frame.groupby(["zone", "category"], as_index=False)
@@ -266,7 +262,7 @@ def render_zone_trend_chart(frame: pd.DataFrame) -> None:
     </body>
     </html>
     """
-    components.html(html_code, height=320)
+    st.iframe(html_code, height=320)
 
 
 st.markdown(

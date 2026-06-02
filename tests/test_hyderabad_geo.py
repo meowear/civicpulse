@@ -1,3 +1,5 @@
+import pytest
+
 from src.geo.hyderabad import resolve_locality
 
 
@@ -29,3 +31,23 @@ def test_unknown_landmark_falls_back_for_manual_triage() -> None:
     locality = resolve_locality("unclear landmark from a noisy scraped post")
 
     assert locality.zone == "Unknown"
+
+
+@pytest.mark.parametrize(
+    ("text", "zone"),
+    [
+        ("garbage pile reported at RTC X Roads after rain", "Central"),
+        ("street light outage near Chandanagar bus stop", "West"),
+        ("overflowing drain at Yakutpura main road", "South"),
+        ("waterlogging complaint from Vanasthalipuram colony", "East"),
+        ("open manhole near Tirumalagiri junction", "Secunderabad"),
+        ("road damage at Suchitra circle", "North"),
+    ],
+)
+def test_expanded_hyderabad_localities_resolve_to_ghmc_zones(
+    text: str,
+    zone: str,
+) -> None:
+    locality = resolve_locality(text)
+
+    assert locality.zone == zone

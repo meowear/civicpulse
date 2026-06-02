@@ -159,8 +159,15 @@ python src/ingestion/pipeline.py --live --url "https://news.google.com/rss/searc
 
 Live scraping lives in `src/ingestion/scraper.py`.
 
-The default target builder creates Google News RSS searches for Hyderabad civic
-queries such as:
+The default target builder creates Google News RSS search URLs for Hyderabad
+civic queries. Each query is URL-encoded and sent to Google News with a
+90-day recency window:
+
+```text
+https://news.google.com/rss/search?q=<encoded Hyderabad civic query when:90d>&hl=en-IN&gl=IN&ceid=IN:en
+```
+
+Those RSS searches cover terms such as:
 
 - GHMC complaints
 - Potholes and road damage
@@ -171,21 +178,52 @@ queries such as:
 - Waterlogging and monsoon flood risks
 - Encroachments, debris, lake pollution, and public safety issues
 
-For each RSS target:
+For each target:
 
-1. `_fetch_text()` requests the RSS/XML with a browser-like user agent.
-2. It retries conservatively with increasing delay.
-3. `_parse_rss()` parses RSS or Atom feed entries.
-4. `_is_hyderabad_civic_item()` keeps only scoped Hyderabad civic records.
-5. `_classify_category()` maps keywords to civic categories.
-6. `_extract_area()` finds a known Hyderabad locality or asks the optional AI
+1. `build_default_targets()` produces `CrawlTarget` records from the configured
+   Hyderabad civic query list.
+2. `_fetch_text_async()` checks whether the URL looks like RSS, Atom, feed, or
+   XML. For these feed URLs it first uses a lightweight direct HTTP request with
+   a browser-like user agent. This keeps the default Google News RSS path fast
+   and deployable without needing a rendered browser page.
+3. If the target is not a feed URL, or the direct feed fetch returns nothing,
+   `_fetch_text_async()` falls back to `crawl4ai.AsyncWebCrawler`. This is the
+   dynamic-page path for ordinary web pages and rendered/markdown extraction.
+   Browser-crawler failures return an empty result for that source instead of
+   crashing the whole pipeline.
+4. `_parse_rss()` parses RSS `<item>` records or Atom `<entry>` records into
+   title, description, link, and published date fields.
+5. `_is_hyderabad_civic_item()` keeps only scoped Hyderabad civic records. It
+   requires Hyderabad scope, rejects known noise topics, and requires a civic
+   keyword such as pothole, drainage, garbage, streetlight, waterlogging, GHMC,
+   or HMWSSB.
+6. `_classify_category()` maps issue keywords to civic categories.
+7. `_extract_area()` finds a known Hyderabad locality or asks the optional AI
    location fallback.
-7. `_score_issue()` assigns raw S, F, R, and D parameters from issue text and
+8. `_score_issue()` assigns raw S, F, R, and D parameters from issue text and
    post date.
-8. Records are deduplicated by title, area, and source URL.
+9. Records are deduplicated by title, area, and source URL.
 
 The scraper intentionally avoids unrelated topics such as elections, cricket,
 movies, stock market news, and generic praise/political roadmap articles.
+
+### RSS Search Behavior
+
+The RSS search layer does not crawl the open web blindly. It builds a fixed set
+of Hyderabad civic search phrases, asks Google News RSS for matching recent
+news, and then applies local filters. This gives predictable coverage and avoids
+hammering arbitrary sites. The app-level Streamlit cache TTL prevents each page
+rerun from re-querying every RSS URL.
+
+### crawl4ai Fallback Behavior
+
+`crawl4ai` is used only after the direct feed path is insufficient. It is useful
+for custom URLs passed with `--url` that are normal web pages instead of RSS
+feeds. In that case crawl4ai opens the page, extracts rendered HTML/markdown,
+and CivicPulse applies the same Hyderabad civic filters. The current dynamic
+page fallback creates a conservative issue only when the extracted page content
+itself matches the Hyderabad civic filter. A future LLM parser can replace that
+generic fallback with richer multi-issue extraction.
 
 ## Location Resolution
 
@@ -199,12 +237,18 @@ The resolver maps known Hyderabad landmarks and localities to:
 - Population density score P
 
 It now includes a wider set of localities across Central, North, South, West,
-East, and Secunderabad zones. It also normalizes aliases such as:
+East, and Secunderabad zones, including frequently occurring areas such as RTC
+X Roads, Masab Tank, Yakutpura, Chanda Nagar, Vanasthalipuram, Bowenpally,
+Suchitra, Moosapet, Sanathnagar, and many others. It also normalizes aliases
+such as:
 
 - `Hi Tech City`, `Hitec City` -> `hitech city`
 - `L.B. Nagar`, `L B Nagar` -> `lb nagar`
 - `Saroor Nagar` -> `saroornagar`
 - `Toli Chowki` -> `tolichowki`
+- `RTC X Roads`, `RTC Crossroads` -> `rtc cross roads`
+- `Chandanagar` -> `chanda nagar`
+- `Tirumalagiri`, `Tirumalgherry` -> `trimulgherry`
 
 Resolution order:
 
@@ -218,6 +262,12 @@ Resolution order:
 
 The AI result never directly controls zone data. It only proposes a locality
 name, which must still match the local GHMC resolver.
+
+`Unknown` is still an intentional safe fallback. It means the pipeline retained
+the issue but could not confidently assign it to one of the six GHMC zones. To
+reduce Unknown records, add recurring real-world locality names or spelling
+variants to `LOCALITIES` and `ALIASES` in `src/geo/hyderabad.py`, then add a
+unit test in `tests/test_hyderabad_geo.py`.
 
 ## Normalization
 
@@ -342,6 +392,36 @@ streamlit run app.py
 
 When the Streamlit page opens, the server reads `.env`, refreshes live feeds
 based on the TTL, writes to Supabase, then renders from Supabase.
+
+## Streamlit Deployment Readiness
+
+The app is ready for local Streamlit and Docker deployment once these items are
+done:
+
+- The Supabase `issues` table exists.
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_TABLE` are set as
+  server-side environment variables or Streamlit secrets.
+- `CIVICPULSE_AUTO_REFRESH_ON_OPEN` is set according to the deployment model.
+- The deployment can install `requirements.txt`.
+- The app is started with `streamlit run app.py`.
+
+For Streamlit Community Cloud specifically, treat this as mostly ready but with
+one crawler caveat:
+
+- The default Google News RSS path now uses direct HTTP first, so it does not
+  need a browser renderer for normal RSS refreshes.
+- `crawl4ai` remains in `requirements.txt` for custom dynamic-page URLs. If the
+  hosted environment cannot install or run crawl4ai's browser dependencies,
+  dynamic-page fallback sources may return no records, but RSS feeds should
+  still work.
+- For the most reliable public deployment, use Docker or another server where
+  crawl4ai setup can be controlled. Alternatively, keep
+  `CIVICPULSE_AUTO_REFRESH_ON_OPEN=false` on Streamlit Community Cloud and run
+  `python src/ingestion/pipeline.py --live --append` from a scheduled worker to
+  populate Supabase.
+
+Do not commit `.env`. In Streamlit Cloud, put the same values in the app's
+server-side secrets/environment settings.
 
 ## CI/CD
 
